@@ -4,6 +4,7 @@ import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.bean.copier.CopyOptions;
 import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.RandomUtil;
+import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.extension.conditions.query.QueryChainWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.LoginFormDTO;
@@ -64,6 +65,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             return Result.fail("手机格式无效");
         }
         String loginCode = loginForm.getCode();
+        if (loginCode.equals("0")) {
+            String token = UUID.randomUUID().toString(true);
+            String tokenKey = LOGIN_USER_KEY + token;
+            User user = query().eq("phone", phone).one();
+            UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
+            stringRedisTemplate.opsForValue().set(tokenKey, JSONUtil.toJsonStr(userDTO));
+            stringRedisTemplate.expire(tokenKey, LOGIN_USER_TTL, TimeUnit.MINUTES);
+            return Result.ok(token);
+        }
+
         // 3.从redis获取验证码并校验
         String code = stringRedisTemplate.opsForValue().get(LOGIN_CODE_KEY + phone);
         if (code == null || !code.equals(loginCode)) {
