@@ -1,5 +1,6 @@
 package com.hmdp.service.impl;
 
+import com.hmdp.config.RedissonConfig;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.SeckillVoucher;
 import com.hmdp.entity.VoucherOrder;
@@ -10,11 +11,16 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
+import org.redisson.api.RedissonClient;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.concurrent.Executors;
 
 /**
  * <p>
@@ -33,30 +39,28 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Resource
     private RedisIdWorker redisIdWorker;
 
+    private static final DefaultRedisScript<Long> SECKILL_SCRIPT;
+
+    static {
+        SECKILL_SCRIPT = new DefaultRedisScript<>();
+        SECKILL_SCRIPT.setLocation(new ClassPathResource("seckill.lua"));
+        SECKILL_SCRIPT.setResultType(Long.class);
+    }
+
     @Override
     public Result seckillVoucher(Long voucherId) {
-        SeckillVoucher voucher = seckillVoucherService.getById(voucherId);
-        if (LocalDateTime.now().isBefore(voucher.getBeginTime())) {
-            return Result.fail("使用时间未开始");
-        }
-        if (LocalDateTime.now().isAfter(voucher.getEndTime())) {
-            return Result.fail("使用时间已结束");
-        }
-        Integer stock = voucher.getStock();
-        if (stock < 1) {
-            return Result.fail("不足");
-        }
         Long userId = UserHolder.getUser().getId();
-        SimpleRedisLock lock = new SimpleRedisLock(stringRedisTemplate, "order:" + userId);
-        boolean tyrLock = lock.tyrLock(1000L);
-        if (!tyrLock) {
-            return Result.fail("不允许重复下单");
+        long orderId = redisIdWorker.nextId("order");
+        Long result = stringRedisTemplate.execute(
+                SECKILL_SCRIPT,
+                Collections.emptyList(),
+                voucherId.toString(), userId.toString()
+        );
+        int r = result.intValue();
+        if (r != 0) {
+            return Result.fail(result == 1 ? "被抢完" : "一人一单");
         }
-        try {
-            return createVoucherOrder(voucherId);
-        } finally {
-            lock.unlock();
-        }
+        return Result.ok(orderId);
     }
 
     private synchronized Result createVoucherOrder(Long voucherId) {
@@ -81,4 +85,29 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         save(voucherOrder);
         return Result.ok(voucherOrderId);
     }
+//    @Override
+//    public Result seckillVoucher(Long voucherId) {
+//        SeckillVoucher voucher = seckillVoucherService.getById(voucherId);
+//        if (LocalDateTime.now().isBefore(voucher.getBeginTime())) {
+//            return Result.fail("使用时间未开始");
+//        }
+//        if (LocalDateTime.now().isAfter(voucher.getEndTime())) {
+//            return Result.fail("使用时间已结束");
+//        }
+//        Integer stock = voucher.getStock();
+//        if (stock < 1) {
+//            return Result.fail("不足");
+//        }
+//        Long userId = UserHolder.getUser().getId();
+//        SimpleRedisLock lock = new SimpleRedisLock(stringRedisTemplate, "order:" + userId);
+//        boolean tyrLock = lock.tyrLock(1000L);
+//        if (!tyrLock) {
+//            return Result.fail("不允许重复下单");
+//        }
+//        try {
+//            return createVoucherOrder(voucherId);
+//        } finally {
+//            lock.unlock();
+//        }
+//    }
 }
