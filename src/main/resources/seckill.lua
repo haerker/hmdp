@@ -20,6 +20,6 @@ end
 
 redis.call('incrby', stockKey, -1)
 redis.call('sadd', orderKey, userId)
-redis.call('xadd', 'stream.orders', '*', 'vouchId', vouchId, 'userId', userId, 'id', orderId)
+redis.call('xadd', 'stream.orders', '*', 'voucherId', vouchId, 'userId', userId, 'id', orderId)
 
 return 0

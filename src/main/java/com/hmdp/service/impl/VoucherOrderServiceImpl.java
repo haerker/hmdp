@@ -14,6 +14,7 @@ import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
 import jodd.util.StringUtil;
+import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.redisson.client.RedisClient;
@@ -40,32 +41,33 @@ import java.util.concurrent.*;
  * @author 虎哥
  * @since 2021-12-22
  */
+@Slf4j
 @Service
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
     @Resource
-    private ISeckillVoucherService seckillVoucherService;
+    private RedisIdWorker redisIdWorker;
     @Resource
     private StringRedisTemplate stringRedisTemplate;
     @Resource
-    private RedisIdWorker redisIdWorker;
+    private ISeckillVoucherService seckillVoucherService;
     @Resource
     private RedissonClient redissonClient;
+    private static final ExecutorService SECKILL_ORDER_EXECUTOR = Executors.newSingleThreadExecutor();
     private static final DefaultRedisScript<Long> SECKILL_SCRIPT;
 
     static {
         SECKILL_SCRIPT = new DefaultRedisScript<>();
         SECKILL_SCRIPT.setLocation(new ClassPathResource("seckill.lua"));
-        SECKILL_SCRIPT.setResultType(Long.class);
+        SECKILL_SCRIPT.setResultType(long.class);
     }
-
-    private static final ExecutorService SECKILL_ORDER_EXECUTOR = Executors.newSingleThreadScheduledExecutor();
 
     @PostConstruct
     private void init() {
+
         SECKILL_ORDER_EXECUTOR.submit(new VoucherOrderHandler());
     }
 
-    public class VoucherOrderHandler implements Runnable {
+    private class VoucherOrderHandler implements Runnable {
 
         @Override
         public void run() {
@@ -73,7 +75,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                 try {
                     List<MapRecord<String, Object, Object>> list = stringRedisTemplate.opsForStream().read(
                             Consumer.from("g1", "c1"),
-                            StreamReadOptions.empty().count(1).block(Duration.ofSeconds(2)),
+                            StreamReadOptions.empty().count(1).block(Duration.ofSeconds(10)),
                             StreamOffset.create("stream.orders", ReadOffset.lastConsumed())
                     );
                     if (list == null || list.isEmpty()) {
@@ -85,13 +87,13 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                     createVoucherOrder(voucherOrder);
                     stringRedisTemplate.opsForStream().acknowledge("stream.orders", "g1", entries.getId());
                 } catch (Exception e) {
-                    log.error("处理订单异常", e);
-                    handlePendingList();
+                    log.error("消息队列读取异常", e);
+                    handlerPendingList();
                 }
             }
         }
 
-        private void handlePendingList() {
+        private void handlerPendingList() {
             while (true) {
                 try {
                     List<MapRecord<String, Object, Object>> list = stringRedisTemplate.opsForStream().read(
@@ -108,12 +110,38 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                     createVoucherOrder(voucherOrder);
                     stringRedisTemplate.opsForStream().acknowledge("stream.orders", "g1", entries.getId());
                 } catch (Exception e) {
-                    log.error("处理订单异常", e);
+                    log.error("消息队列读取异常", e);
                 }
             }
         }
     }
 
+    private void createVoucherOrder(VoucherOrder voucherOrder) {
+        Long voucherId = voucherOrder.getVoucherId();
+        Long userId = voucherOrder.getUserId();
+        RLock redisLock = redissonClient.getLock("lock:order:" + userId);
+        boolean isLock = redisLock.tryLock();
+        if (!isLock) {
+            log.error("禁止重复下单1");
+            return;
+        }
+        try {
+            int count = query().eq("voucher_id", voucherId).eq("user_id", userId).count();
+            if (count > 0) {
+                log.error("禁止重复下单2");
+                return;
+            }
+            boolean success = seckillVoucherService.update().setSql("stock = stock -1")
+                    .eq("voucher_id", voucherId).gt("stock", 0).update();
+            if (!success) {
+                log.error("库存不足1");
+                return;
+            }
+            save(voucherOrder);
+        } finally {
+            redisLock.unlock();
+        }
+    }
 
     @Override
     public Result seckillVoucher(Long voucherId) {
@@ -125,39 +153,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                 voucherId.toString(), userId.toString(), String.valueOf(orderId)
         );
         int r = result.intValue();
-        if (r != 0) {
-            return Result.fail(result == 1 ? "被抢完" : "一人一单");
+        if (r > 0) {
+            return Result.fail(r == 1 ? "库存不足2" : "禁止重复下单3");
         }
         return Result.ok(orderId);
-    }
-
-    private void createVoucherOrder(VoucherOrder voucherOrder) {
-        Long voucherId = voucherOrder.getVoucherId();
-        Long userId = voucherOrder.getUserId();
-        RLock redisLock = redissonClient.getLock("lock:order:" + userId);
-        boolean isLock = redisLock.tryLock();
-        if (!isLock) {
-            log.error("获取锁失败");
-            return;
-        }
-        try {
-            int count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
-            if (count > 0) {
-                log.error("不允许重复下单");
-                return;
-            }
-            boolean success = seckillVoucherService.update()
-                    .setSql("stock = stock -1")
-                    .eq("voucher_id", voucherId).gt("stock", 0)
-                    .update();
-            if (!success) {
-                log.error("库存不足");
-                return;
-            }
-            save(voucherOrder);
-        } finally {
-            redisLock.unlock();
-        }
     }
 
 
