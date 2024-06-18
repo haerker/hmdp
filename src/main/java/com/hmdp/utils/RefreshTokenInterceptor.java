@@ -32,19 +32,26 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
         }
         // 2.基于TOKEN获取redis中的用户
         String tokenKey = LOGIN_USER_KEY + token;
-//        Map<Object, Object> userMap = stringRedisTemplate.opsForHash().entries(tokenKey);
-        String json = stringRedisTemplate.opsForValue().get(tokenKey);
-        // 3.判断用户是否存在
-        if (StrUtil.isBlank(json)) {
-            return true;
-        }
-        UserDTO userDTO = JSONUtil.toBean(json, UserDTO.class);
-
-        // 5.将查询到的hash数据转为UserDTO
-//        UserDTO userDTO = BeanUtil.fillBeanWithMap(userMap, new UserDTO(), false);
-        // 6.存在，保存用户信息到 ThreadLocal
-        UserHolder.saveUser(userDTO);
+//        String json = stringRedisTemplate.opsForValue().get(tokenKey);
+//        // 3.判断用户是否存在
+//        if (StrUtil.isBlank(json)) {
+//            return true;
+//        }
+//        UserDTO userDTO = JSONUtil.toBean(json, UserDTO.class);
+//
+//        // 5.将查询到的hash数据转为UserDTO
+////        UserDTO userDTO = BeanUtil.fillBeanWithMap(userMap, new UserDTO(), false);
+//        // 6.存在，保存用户信息到 ThreadLocal
+//        UserHolder.saveUser(userDTO);
         // 7.刷新token有效期
+
+        Map<Object, Object> userMap = stringRedisTemplate.opsForHash().entries(tokenKey);
+        if(userMap.isEmpty()){
+            return true;
+
+        }
+        UserDTO userDTO = BeanUtil.fillBeanWithMap(userMap, new UserDTO(), false);
+        UserHolder.saveUser(userDTO);
         stringRedisTemplate.expire(tokenKey, LOGIN_USER_TTL, TimeUnit.MINUTES);
         // 8.放行
         return true;
