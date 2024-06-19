@@ -1,5 +1,7 @@
 package com.hmdp.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
@@ -17,7 +19,10 @@ import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static com.hmdp.utils.RedisConstants.*;
 
@@ -54,6 +59,21 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     }
 
     @Override
+    public Result queryBlogLikes(Long id) {
+        String key = BLOG_LIKED_KEY + id;
+        Set<String> range = stringRedisTemplate.opsForZSet().range(key, 0, 4);
+        if (range == null || range.isEmpty()) {
+            return Result.ok(Collections.emptyList());
+        }
+        List<Long> ids = range.stream().map(Long::valueOf).collect(Collectors.toList());
+        String idStr = StrUtil.join(",", ids);
+        List<UserDTO> userDTOS = userService.query().in("id", ids).last("ORDER BY FIELD(id," + idStr + ")")
+                .list().stream().map(user -> BeanUtil.copyProperties(user, UserDTO.class))
+                .collect(Collectors.toList());
+        return Result.ok(userDTOS);
+    }
+
+    @Override
     public Result getBlogById(Long id) {
         Blog bolg = getById(id);
         if (bolg == null) {
@@ -66,10 +86,10 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
 
     private void isBlogLiked(Blog bolg) {
         Long userId = UserHolder.getUser().getId();
-        String key = BLOG_LIKED_KEY + bolg.getId();
         if (userId == null) {
             return;
         }
+        String key = BLOG_LIKED_KEY + bolg.getId();
         Double score = stringRedisTemplate.opsForZSet().score(key, userId.toString());
         bolg.setIsLike(score != null);
     }
