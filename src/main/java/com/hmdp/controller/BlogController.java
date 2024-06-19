@@ -41,8 +41,9 @@ public class BlogController {
         // 返回id
         return Result.ok(blog.getId());
     }
+
     @GetMapping("/{id}")
-    public Result getBlogById(@PathVariable Long id){
+    public Result getBlogById(@PathVariable Long id) {
         return blogService.getBlogById(id);
     }
 
@@ -53,7 +54,7 @@ public class BlogController {
     }
 
     @GetMapping("/likes/{id}")
-    public Result queryBlogLikes(@PathVariable Long id){
+    public Result queryBlogLikes(@PathVariable Long id) {
         return blogService.queryBlogLikes(id);
     }
 
@@ -72,5 +73,16 @@ public class BlogController {
     @GetMapping("/hot")
     public Result queryHotBlog(@RequestParam(value = "current", defaultValue = "1") Integer current) {
         return blogService.queryHotBlog(current);
+    }
+
+    @GetMapping("/of/user")
+    public Result queryBlogByUserId(
+            @RequestParam(value = "current", defaultValue = "1") Integer current,
+            @RequestParam("id") Long id
+    ) {
+        Page<Blog> page = blogService.query()
+                .eq("user_id", id).page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
+        List<Blog> records = page.getRecords();
+        return Result.ok(records);
     }
 }
