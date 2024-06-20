@@ -64,7 +64,24 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @PostConstruct
     private void init() {
 
-        SECKILL_ORDER_EXECUTOR.submit(new VoucherOrderHandler());
+//        SECKILL_ORDER_EXECUTOR.submit(new VoucherOrderHandler());
+    }
+
+    //TODO 用消息队列实现
+    @Override
+    public Result seckillVoucher(Long voucherId) {
+        Long userId = UserHolder.getUser().getId();
+        long orderId = redisIdWorker.nextId("order");
+        Long result = stringRedisTemplate.execute(
+                SECKILL_SCRIPT,
+                Collections.emptyList(),
+                voucherId.toString(), userId.toString(), String.valueOf(orderId)
+        );
+        int r = result.intValue();
+        if (r > 0) {
+            return Result.fail(r == 1 ? "库存不足2" : "禁止重复下单3");
+        }
+        return Result.ok(orderId);
     }
 
     private class VoucherOrderHandler implements Runnable {
@@ -141,23 +158,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         } finally {
             redisLock.unlock();
         }
-    }
-
-    //TODO 用消息队列实现
-    @Override
-    public Result seckillVoucher(Long voucherId) {
-        Long userId = UserHolder.getUser().getId();
-        long orderId = redisIdWorker.nextId("order");
-        Long result = stringRedisTemplate.execute(
-                SECKILL_SCRIPT,
-                Collections.emptyList(),
-                voucherId.toString(), userId.toString(), String.valueOf(orderId)
-        );
-        int r = result.intValue();
-        if (r > 0) {
-            return Result.fail(r == 1 ? "库存不足2" : "禁止重复下单3");
-        }
-        return Result.ok(orderId);
     }
 
 
