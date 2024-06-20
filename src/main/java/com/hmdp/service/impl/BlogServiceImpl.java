@@ -150,7 +150,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     }
 
     private void isBlogLiked(Blog bolg) {
-        Long userId = UserHolder.getUser().getId();
+        Long userId = bolg.getUserId();
         if (userId == null) {
             return;
         }
