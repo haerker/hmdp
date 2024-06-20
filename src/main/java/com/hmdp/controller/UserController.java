@@ -14,6 +14,7 @@ import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
+import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpSession;
 
@@ -97,4 +98,16 @@ public class UserController {
         UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
         return Result.ok(userDTO);
     }
+
+    @PostMapping("/sign")
+    public Result sign() {
+        return userService.sign();
+    }
+
+    //连续签到天数
+    @GetMapping("/sign/count")
+    public Result signCount() {
+        return userService.signCount();
+    }
+
 }
