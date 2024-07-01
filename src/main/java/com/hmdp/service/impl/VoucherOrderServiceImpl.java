@@ -13,11 +13,15 @@ import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
+import com.rabbitmq.client.Channel;
 import jodd.util.StringUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.redisson.client.RedisClient;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.connection.stream.*;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -32,6 +36,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
+
+import static com.hmdp.utils.RedisConstants.*;
 
 /**
  * <p>
@@ -52,6 +58,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private ISeckillVoucherService seckillVoucherService;
     @Resource
     private RedissonClient redissonClient;
+    @Resource
+    private RabbitTemplate rabbitTemplate;
     private static final ExecutorService SECKILL_ORDER_EXECUTOR = Executors.newSingleThreadExecutor();
     private static final DefaultRedisScript<Long> SECKILL_SCRIPT;
 
@@ -80,6 +88,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         int r = result.intValue();
         if (r > 0) {
             return Result.fail(r == 1 ? "库存不足2" : "禁止重复下单3");
+        } else {
+            rabbitTemplate.convertAndSend(EXCHANGE_DP, ROUTING_DP, orderId + "-" + voucherId + "-" + userId);
         }
         return Result.ok(orderId);
     }
@@ -131,6 +141,16 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                 }
             }
         }
+    }
+
+    @RabbitListener(queues = {QUEUE_DP})
+    public void processMessage(String dataString, Message message, Channel channel) {
+        String[] split = dataString.split("-");
+        VoucherOrder voucherOrder = new VoucherOrder();
+        voucherOrder.setId(Long.valueOf(split[0]));
+        voucherOrder.setVoucherId(Long.valueOf(split[1]));
+        voucherOrder.setUserId(Long.valueOf(split[2]));
+        createVoucherOrder(voucherOrder);
     }
 
     private void createVoucherOrder(VoucherOrder voucherOrder) {

@@ -19,4 +19,7 @@ public class RedisConstants {
     public static final String FEED_KEY = "feed:";
     public static final String SHOP_GEO_KEY = "shop:geo:";
     public static final String USER_SIGN_KEY = "sign:";
+    public static final String EXCHANGE_DP = "exchange.dp";
+    public static final String QUEUE_DP = "queue.dp";
+    public static final String ROUTING_DP = "routing.key.dp";
 }
